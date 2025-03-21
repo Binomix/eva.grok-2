@@ -10,6 +10,9 @@ model = load_model('dna_model.keras')
 scaler = joblib.load('scaler.pkl')
 X_train_columns = joblib.load('columns.pkl')
 
+# Выводим X_train_columns для отладки
+st.write("X_train_columns:", list(X_train_columns))
+
 # Словарь болезней
 disease_map = {
     'F508del': 'Муковисцидоз',
@@ -31,6 +34,9 @@ def process_vcf(file, model, scaler, X_train_columns):
             file.seek(0)
             lines = file.read().decode('utf-8').splitlines()
             filtered_lines = [line for line in lines if not line.startswith('##')]
+            # Исправляем заголовок, убирая '#' из #CHROM
+            if filtered_lines and filtered_lines[0].startswith('#'):
+                filtered_lines[0] = filtered_lines[0].lstrip('#')
             filtered_file = io.StringIO('\n'.join(filtered_lines))
         else:
             sep = ','  # CSV-файлы используют запятые
@@ -38,6 +44,12 @@ def process_vcf(file, model, scaler, X_train_columns):
 
         # Читаем файл
         df = pd.read_csv(filtered_file, sep=sep)
+        # Проверяем наличие всех ожидаемых столбцов
+        required_cols = ['CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            raise KeyError(f"Отсутствуют обязательные столбцы: {missing_cols}")
+
         original_df = df.copy()
         df = df.drop('ID', axis=1)
         categorical_cols = ['CHROM', 'REF', 'ALT', 'FILTER', 'INFO']
