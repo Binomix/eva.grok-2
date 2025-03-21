@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from tensorflow.keras.models import load_model
 import joblib
+import io
 
 # Загрузка модели, scaler и columns
 model = load_model('dna_model.keras')
@@ -27,20 +28,32 @@ def process_vcf(file, model, scaler, X_train_columns):
         file_name = file.name.lower()
         if file_name.endswith('.vcf'):
             sep = '\t'  # VCF-файлы используют табуляцию
-            skiprows = lambda x: x.startswith('##')  # Пропускаем строки с метаданными
+            file.seek(0)
+            lines = file.read().decode('utf-8').splitlines()
+            filtered_lines = [line for line in lines if not line.startswith('##')]
+            filtered_file = io.StringIO('\n'.join(filtered_lines))
         else:
             sep = ','  # CSV-файлы используют запятые
-            skiprows = None
+            filtered_file = file
 
         # Читаем файл
-        df = pd.read_csv(file, sep=sep, skiprows=skiprows)
+        df = pd.read_csv(filtered_file, sep=sep)
         original_df = df.copy()
         df = df.drop('ID', axis=1)
         categorical_cols = ['CHROM', 'REF', 'ALT', 'FILTER', 'INFO']
         df_encoded = pd.get_dummies(df, columns=categorical_cols)
-        for col in X_train_columns:
-            if col not in df_encoded.columns:
-                df_encoded[col] = 0
+
+        # Добавляем отсутствующие столбцы из X_train_columns
+        missing_cols = [col for col in X_train_columns if col not in df_encoded.columns]
+        for col in missing_cols:
+            df_encoded[col] = 0
+
+        # Убедимся, что все столбцы из X_train_columns присутствуют
+        if not all(col in df_encoded.columns for col in X_train_columns):
+            missing = [col for col in X_train_columns if col not in df_encoded.columns]
+            raise KeyError(f"Не удалось добавить столбцы: {missing}")
+
+        # Выравниваем столбцы
         df_encoded = df_encoded[X_train_columns]
         numeric_cols = ['POS', 'QUAL']
         df_encoded[numeric_cols] = scaler.transform(df_encoded[numeric_cols])
